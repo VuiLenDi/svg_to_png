@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#16785b" />
+    <meta name="description" content="Chuyển SVG sang PNG, đổi màu fill và nét viền ngay trên trình duyệt." />
+    <title>SVG → PNG | Vector Studio</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <a class="brand" href="./" aria-label="Vector Studio"><span class="brand-icon"><i data-lucide="scan-line"></i></span>vector<span class="brand-light">studio</span><span class="tool-label">SVG TO PNG</span></a>
+      <span class="privacy"><i data-lucide="shield-check"></i> Xử lý trên thiết bị của bạn</span>
+    </header>
+    <main>
+      <div class="page-heading"><div><p class="eyebrow">VECTOR STUDIO / CONVERTER</p><h1>SVG <span>→</span> PNG</h1></div><button id="sample" class="button secondary"><i data-lucide="sparkles"></i>Dùng SVG mẫu</button></div>
+      <div class="workspace">
+        <section class="source-pane" aria-labelledby="source-heading">
+          <div class="section-heading"><h2 id="source-heading"><span class="step">01</span>Nguồn SVG</h2><button id="clear" class="icon-button" title="Xóa nội dung" aria-label="Xóa nội dung"><i data-lucide="trash-2"></i></button></div>
+          <label class="upload" id="dropzone" for="file"><span class="upload-icon"><i data-lucide="upload"></i></span><strong>Chọn hoặc kéo thả file SVG</strong><span>.svg · tối đa 2 MB</span><input id="file" type="file" accept=".svg,image/svg+xml" /></label>
+          <div class="editor-heading"><label for="source">Nội dung SVG</label><span id="source-size">0 ký tự</span></div>
+          <textarea id="source" spellcheck="false" aria-describedby="error" placeholder="<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; ...>\n  Dán nội dung SVG của bạn tại đây\n</svg>"></textarea>
+          <div class="source-footer"><span id="file-name">Chưa chọn file</span><span>UTF-8</span></div>
+          <p id="error" class="error" role="alert" hidden></p>
+        </section>
+        <section class="output-pane" aria-labelledby="preview-heading">
+          <div class="section-heading"><h2 id="preview-heading"><span class="step">02</span>Xem trước</h2><span id="preview-badge" class="badge">SVG</span></div>
+          <div class="preview checkerboard" id="preview"><img id="preview-image" alt="Ảnh SVG xem trước" hidden /><div id="empty" class="empty"><i data-lucide="image"></i><span>Chưa có SVG</span></div><span class="preview-caption" id="preview-dimensions"></span></div>
+          <div class="settings">
+            <div class="settings-heading"><h3>Tùy chỉnh</h3><button id="reset" class="text-button" title="Đặt lại tùy chỉnh"><i data-lucide="rotate-ccw"></i>Đặt lại</button></div>
+            <div class="color-grid">
+              <div class="color-setting"><label class="check-label"><input type="checkbox" id="fill-enabled" />Màu fill</label><div class="color-field"><input type="color" id="fill-picker" value="#16785b" aria-label="Chọn màu fill" /><input type="text" id="fill-text" value="#16785B" aria-label="Nhập mã màu fill" maxlength="7" spellcheck="false" /></div></div>
+              <div class="color-setting"><label class="check-label"><input type="checkbox" id="stroke-enabled" />Màu viền</label><div class="color-field"><input type="color" id="stroke-picker" value="#172e27" aria-label="Chọn màu viền" /><input type="text" id="stroke-text" value="#172E27" aria-label="Nhập mã màu viền" maxlength="7" spellcheck="false" /></div></div>
+            </div>
+            <div class="size-heading"><label for="width">Kích thước xuất</label><span>px</span></div>
+            <div class="dimensions"><label><span>Rộng</span><input id="width" type="number" value="512" min="1" max="8192" step="1" /></label><button id="lock" class="icon-button active" aria-label="Giữ tỷ lệ" aria-pressed="true" title="Giữ tỷ lệ"><i data-lucide="link"></i></button><label><span>Cao</span><input id="height" type="number" value="512" min="1" max="8192" step="1" /></label></div>
+            <div class="background-row"><label class="check-label"><input id="transparent" type="checkbox" checked />Nền trong suốt</label><input id="background" type="color" value="#ffffff" aria-label="Màu nền PNG" disabled /></div>
+            <button id="convert" class="button primary" disabled><i data-lucide="download"></i><span>Chuyển đổi & tải PNG</span><i data-lucide="arrow-up-right"></i></button>
+            <p id="status" class="status" role="status" aria-live="polite">PNG · Nền trong suốt</p>
+          </div>
+        </section>
+      </div>
+      <footer><span><span class="status-dot"></span>Không tải file lên máy chủ</span><span>Vector in. Pixels out.</span></footer>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

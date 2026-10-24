@@ -1,0 +1,19 @@
+{
+  "name": "svg-to-png-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "node --check src/main.js && node --check src/converter.js"
+  },
+  "dependencies": {
+    "dompurify": "^3.3.0",
+    "lucide": "^0.468.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.0"
+  }
+}
