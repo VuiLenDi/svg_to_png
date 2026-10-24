@@ -20,6 +20,7 @@ export function parseSvg(source) {
   }
   const clean = DOMPurify.sanitize(source, {
     USE_PROFILES: { svg: true, svgFilters: true },
+    ADD_TAGS: ['use'],
     FORBID_TAGS: ['foreignObject', 'script', 'animate', 'animateMotion', 'animateTransform', 'set', 'a'],
   });
   const svg = new DOMParser().parseFromString(clean, 'image/svg+xml').documentElement;
