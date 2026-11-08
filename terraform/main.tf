@@ -8,7 +8,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "svg-to-png-terraform-state"
+    bucket         = "svg-to-png-terraform-state-<ACCOUNT_ID>"
     key            = "prod/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
@@ -17,7 +17,8 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region  = var.aws_region
+  profile = "dev-sso"
 
   default_tags {
     tags = {

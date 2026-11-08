@@ -8,7 +8,8 @@ terraform {
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region  = "us-east-1"
+  profile = "dev-sso"
 }
 
 # S3 bucket for Terraform state
