@@ -29,8 +29,9 @@ variable "container_port" {
 }
 
 variable "container_image" {
-  description = "Docker image URI"
+  description = "Docker image URI (pass via TF_VAR_container_image or CI/CD)"
   type        = string
+  default     = ""
 }
 
 variable "desired_count" {
@@ -46,7 +47,7 @@ variable "domain_name" {
 }
 
 variable "acm_certificate_arn" {
-  description = "ACM certificate ARN for HTTPS"
+  description = "ACM certificate ARN for HTTPS (pass via TF_VAR_acm_certificate_arn or CI/CD)"
   type        = string
   default     = ""
 }
