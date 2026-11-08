@@ -1,0 +1,9 @@
+aws_region       = "us-east-1"
+project_name     = "svg-to-png"
+environment      = "production"
+app_name         = "svg-to-png-converter"
+container_port   = 3000
+desired_count    = 2
+
+# Thay thế với URI của Docker image trong ECR
+# container_image = "123456789<ECR_IMAGE>"
