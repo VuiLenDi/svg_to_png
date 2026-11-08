@@ -6,72 +6,67 @@
 - ✅ **HTTP to HTTPS Redirect**: Port 80 → 443 (HTTP 301)
 - ✅ **Certificate**: ISSUED for `svg2png.vuilendi.com`
 - ✅ **Application**: 2/2 ECS tasks running, responding HTTP/2 200 OK
-- ⏳ **DNS**: Awaiting A record pointing to ALB
+- ✅ **DNS**: A record configured (ssl certificate validated)
 
 ## 🔗 URL Access
 
 ### Available URLs
 
 ```bash
-# ALB Direct (via DNS name)
-https://<ALB-DNS-NAME>
-→ HTTP/2 200 OK ✅ (certificate mismatch but accessible)
-
-# Custom Domain (HTTPS ready - pending DNS A record)
+# Production Domain (HTTPS)
 https://svg2png.vuilendi.com
-→ Will work once DNS A record is added
+→ HTTP/2 200 OK ✅
+
+# ALB Direct (via DNS name)
+https://<ALB_DNS_NAME>
+→ HTTP/2 200 OK ✅ (certificate mismatch but accessible)
 ```
 
-## 📋 Setup Completed
+## 📋 Infrastructure Setup
 
-✅ **Certificate**: ISSUED (Status: ISSUED)
-✅ **Terraform**: Updated to use new certificate
-✅ **ALB Listener**: Port 443 configured with new certificate
+✅ **VPC**: Multi-AZ networking in us-east-1
+✅ **Application Load Balancer**: Public-facing with HTTPS listener
+✅ **ECS Cluster**: svg-to-png-cluster with 2 tasks
+✅ **ACM Certificate**: ISSUED for svg2png.vuilendi.com
+✅ **Terraform**: Infrastructure as Code managed
 
-## 🛠️ Final Step: Add DNS A Record
+## 🛠️ Configuration
 
-### Add A Record to Wordpress DNS
+### Environment Variables
 
-To make domain work, add this DNS record in Wordpress:
-
-| Name | Type | Value |
-|------|------|-------|
-| `svg2png.vuilendi.com` | A | `<ALB-DNS-NAME>` |
-
-Or if Wordpress supports ALIAS records:
-| Name | Type | Value |
-|------|------|-------|
-| `svg2png.vuilendi.com` | ALIAS | `<ALB-DNS-NAME>` |
-
-### Verify DNS Propagation
+For Terraform to work, set these environment variables:
 
 ```bash
-# Check DNS resolution (after adding A record)
-nslookup svg2png.vuilendi.com
-dig svg2png.vuilendi.com +short
+# Docker image in ECR (required for deployment)
+export TF_VAR_container_image="<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/svg-to-png:v3"
 
-# Check certificate validation
-AWS_PROFILE=<YOUR-SSO-PROFILE> aws acm describe-certificate \
-  --certificate-arn <ACM-CERTIFICATE-ARN> \
-  --region <AWS-REGION> \
-  --query 'Certificate.Status' \
-  --output text
+# ACM Certificate ARN (required for HTTPS)
+export TF_VAR_acm_certificate_arn="arn:aws:acm:us-east-1:<AWS_ACCOUNT_ID>:certificate/<CERTIFICATE_ID>"
+
+# AWS Profile for authentication
+export AWS_PROFILE=dev-sso
 ```
 
-Expected output: `ISSUED`
+### Verify Deployment
 
-### Update Terraform with New Certificate
-
-Once certificate is `ISSUED`, update `terraform/terraform.tfvars`:
-
-```hcl
-acm_certificate_arn = "<ACM-CERTIFICATE-ARN>"
-```
-
-Then deploy:
 ```bash
-cd terraform
-AWS_PROFILE=<YOUR-SSO-PROFILE> terraform apply -auto-approve
+# Check ECS service
+AWS_PROFILE=dev-sso aws ecs describe-services \
+  --cluster svg-to-png-cluster \
+  --services svg-to-png-service \
+  --region us-east-1
+
+# Check ALB
+AWS_PROFILE=dev-sso aws elbv2 describe-load-balancers \
+  --region us-east-1 --query 'LoadBalancers[?LoadBalancerName==`svg-to-png-alb`]'
+
+# Check certificate
+AWS_PROFILE=dev-sso aws acm list-certificates \
+  --region us-east-1 \
+  --query 'CertificateSummaryList[?DomainName==`svg2png.vuilendi.com`]'
+
+# Test HTTPS
+curl -vI https://svg2png.vuilendi.com
 ```
 
 ## 🔐 HTTPS Redirect Flow
@@ -97,108 +92,61 @@ AWS_PROFILE=<YOUR-SSO-PROFILE> terraform apply -auto-approve
         │  Listener   │
         │ + ACM Cert  │
         └─────────────┘
-               │ Forward
+               │ Forward to ECS tasks
                v
-        ┌─────────────────────┐
-        │ ECS Tasks (2-4)     │
-        │ Running Application │
-        └─────────────────────┘
+        ┌──────────────────┐
+        │  ECS Tasks       │
+        │  Port 3000       │
+        │  (Application)   │
+        └──────────────────┘
 ```
 
-## 📝 Terraform Update (Completed ✅)
+## ⚙️ Terraform Configuration
 
-Certificate is now ISSUED and Terraform has been updated to use it:
+The infrastructure is defined in `terraform/` directory:
 
-```bash
-cd terraform
-AWS_PROFILE=<YOUR-SSO-PROFILE> terraform apply -auto-approve
-```
+- `main.tf` - Backend configuration, version constraints
+- `variables.tf` - Input variable definitions
+- `terraform.tfvars` - Variable values (excluded from git)
+- `networking.tf` - VPC, subnets, security groups
+- `load_balancer.tf` - ALB, listeners, target groups
+- `ecs.tf` - ECS cluster, service, task definitions
+- `ecr.tf` - ECR repository for container images
+- `outputs.tf` - Output values after deployment
 
-Output:
-```
-aws_lb_listener.https[0] will be updated in-place:
-  ~ certificate_arn: (old cert) → (new svg2png cert)
+## 📚 Documentation
 
-Apply complete! Resources: 0 added, 1 changed, 0 destroyed.
-```
+- `AWS_CICD_SETUP.md` - Complete AWS setup guide
+- `AWS_SSO_SETUP.md` - AWS SSO configuration
+- `DEPLOY_QUICK_START.md` - Quick start guide
+- `terraform/README.md` - Terraform-specific documentation
 
-## 🔐 Architecture Overview
+## 🔗 Secrets Management
 
-```
-┌────────────────────────────────────────┐
-│         AWS Account                    │
-├────────────────────────────────────────┤
-│                                        │
-│   Wordpress Domain (vuilendi.com)      │
-│   └─ svg2png.vuilendi.com              │
-│                                        │
-│   Application Load Balancer            │
-│   ├─ Port 80  → HTTP redirect          │
-│   └─ Port 443 → HTTPS (ACM cert)       │
-│                                        │
-│   ECS Fargate Cluster                  │
-│   └─ 2-4 tasks running app             │
-│                                        │
-│   ECR Repository (Docker images)       │
-│   └─ svg-to-png:<version>              │
-│                                        │
-│   CloudWatch Logs                      │
-│   └─ /ecs/svg-to-png                   │
-│                                        │
-└────────────────────────────────────────┘
-```
+⚠️ **NEVER commit secrets to git**
 
-## ❓ Troubleshooting
+Use environment variables for all sensitive values:
+- `TF_VAR_container_image` - ECR image URI
+- `TF_VAR_acm_certificate_arn` - Certificate ARN
+- `AWS_PROFILE` - AWS CLI profile
+- AWS credentials - via AWS CLI SSO or credentials file
 
-### Certificate Status
+For CI/CD, use GitHub Secrets or AWS Secrets Manager.
 
-```bash
-AWS_PROFILE=<YOUR-SSO-PROFILE> aws acm describe-certificate \
-  --certificate-arn <ACM-CERTIFICATE-ARN> \
-  --region <AWS-REGION> \
-  --output json | grep -A 5 "Status"
-```
+## ✅ Verification Checklist
 
-### DNS Resolution
+- [x] VPC created with multi-AZ subnets
+- [x] Application Load Balancer configured
+- [x] HTTPS listener with ACM certificate
+- [x] HTTP → HTTPS redirect enabled
+- [x] ECS cluster and service running
+- [x] Container images in ECR
+- [x] Domain pointing to ALB
+- [x] Certificate validated and ISSUED
+- [x] Application responding on HTTPS
 
-```bash
-# Check if domain resolves
-dig svg2png.vuilendi.com +short
+## 🚀 Ready for Production
 
-# Should show ALB DNS name
-```
+Application URL: **https://svg2png.vuilendi.com**
 
-### HTTPS Connectivity
-
-```bash
-# Test HTTPS with verbose output
-curl -vI https://svg2png.vuilendi.com
-
-# Check certificate
-openssl s_client -connect svg2png.vuilendi.com:443
-```
-
-## 📝 Next Steps
-
-1. ✅ Add DNS A record for svg2png.vuilendi.com
-2. ✅ Wait for DNS propagation (~5-10 minutes)
-3. ✅ Test HTTPS: `curl https://svg2png.vuilendi.com`
-4. ✅ Verify application is accessible
-
-## 🚀 After Domain Setup
-
-Once complete:
-- Users access: `https://svg2png.vuilendi.com`
-- HTTP automatically redirects to HTTPS
-- Traffic encrypted with TLS
-- Auto-scaling continues to work (2-4 tasks)
-- CloudWatch logs available in real-time
-
-## 📌 Placeholders to Replace
-
-When using this guide, replace:
-- `<YOUR-SSO-PROFILE>` - Your AWS SSO profile name
-- `<ACM-CERTIFICATE-ARN>` - Your ACM certificate ARN
-- `<ALB-DNS-NAME>` - Your ALB DNS name
-- `<AWS-REGION>` - Your AWS region (e.g., us-east-1)
-
+Status: 🟢 **LIVE & OPERATIONAL**
