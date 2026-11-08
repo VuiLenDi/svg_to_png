@@ -2,62 +2,54 @@
 
 ## 📋 Current Status
 
-- ✅ **HTTPS Listener**: Configured on port 443
+- ✅ **HTTPS Listener**: Configured on port 443 with svg2png.vuilendi.com certificate
 - ✅ **HTTP to HTTPS Redirect**: Port 80 → 443 (HTTP 301)
-- ⏳ **Certificate**: Awaiting DNS validation for `svg2png.vuilendi.com`
-- 🔌 **Temporary Setup**: Using existing validated certificate for testing
+- ✅ **Certificate**: ISSUED for `svg2png.vuilendi.com`
+- ✅ **Application**: 2/2 ECS tasks running, responding HTTP/2 200 OK
+- ⏳ **DNS**: Awaiting A record pointing to ALB
 
 ## 🔗 URL Access
 
-### Current URLs
+### Available URLs
 
 ```bash
-# ALB Direct (HTTP only)
-http://svg-to-png-alb-1323256632.us-east-1.elb.amazonaws.com
+# ALB Direct (via DNS name)
+https://svg-to-png-alb-1323256632.us-east-1.elb.amazonaws.com
+→ HTTP/2 200 OK ✅ (certificate mismatch but accessible)
 
-# Custom Domain (HTTPS ready once DNS validated)
+# Custom Domain (HTTPS ready - pending DNS A record)
 https://svg2png.vuilendi.com
+→ Will work once DNS A record is added
 ```
 
-## 🛠️ Setup Steps for svg2png.vuilendi.com
+## 📋 Setup Completed
 
-### Step 1: Get DNS Validation Records
+✅ **Certificate**: ISSUED (Status: ISSUED)
+✅ **ACM ARN**: `arn:aws:acm:us-east-1:086090976189:certificate/90f46806-05fe-47fa-b8b5-3ad01f54270f`
+✅ **Terraform**: Updated to use new certificate
+✅ **ALB Listener**: Port 443 configured with new certificate
 
-An ACM certificate has been requested for `svg2png.vuilendi.com`. To validate it, AWS requires DNS CNAME records.
+## 🛠️ Final Step: Add DNS A Record
 
-**Certificate ARN**: `arn:aws:acm:us-east-1:086090976189:certificate/90f46806-05fe-47fa-b8b5-3ad01f54270f`
+### Add A Record to Wordpress DNS
 
-**Check validation status**:
-```bash
-AWS_PROFILE=dev-sso aws acm describe-certificate \
-  --certificate-arn arn:aws:acm:us-east-1:086090976189:certificate/90f46806-05fe-47fa-b8b5-3ad01f54270f \
-  --region us-east-1 \
-  --query 'Certificate.DomainValidationOptions[*].[DomainName,ResourceRecord]' \
-  --output json
-```
-
-**CNAME Records to Add** (in Wordpress):
+To make domain work, add this DNS record in Wordpress:
 
 | Name | Type | Value |
 |------|------|-------|
-| `_682bd0c061a0bf27fd662e0c7a6765ef.svg2png.vuilendi.com` | CNAME | `_ff0c3dfa66bb9c6f481a0980af26abd1.wzccmgtwzk.acm-validations.aws` |
+| `svg2png.vuilendi.com` | A | `svg-to-png-alb-1323256632.us-east-1.elb.amazonaws.com` |
 
-### Step 2: Add DNS Records to Wordpress
+Or if Wordpress supports ALIAS records:
+| Name | Type | Value |
+|------|------|-------|
+| `svg2png.vuilendi.com` | ALIAS | `svg-to-png-alb-1323256632.us-east-1.elb.amazonaws.com` |
 
-1. Go to Wordpress dashboard → DNS/Domain settings
-2. Add the CNAME record above for ACM validation
-3. Add `A` record to point domain to ALB:
-   ```
-   Name: svg2png.vuilendi.com
-   Type: A (or ALIAS if supported)
-   Value: svg-to-png-alb-1323256632.us-east-1.elb.amazonaws.com
-   ```
-
-### Step 3: Verify DNS Propagation
+### Verify DNS Propagation
 
 ```bash
-# Check DNS resolution
+# Check DNS resolution (after adding A record)
 nslookup svg2png.vuilendi.com
+dig svg2png.vuilendi.com +short
 
 # Check certificate validation (allow ~5-10 minutes for ACM to verify)
 AWS_PROFILE=dev-sso aws acm describe-certificate \
@@ -114,20 +106,24 @@ AWS_PROFILE=dev-sso terraform apply -auto-approve
         └─────────────────────┘
 ```
 
-## 🧪 Test HTTPS Setup
+## 📝 Terraform Update (Completed ✅)
 
-Once domain is setup:
+Certificate is now ISSUED and Terraform has been updated to use it:
 
 ```bash
-# Test HTTPS connection
-curl -I https://svg2png.vuilendi.com
-
-# Expected:
-# HTTP/1.1 200 OK
-# Content-Type: text/html
+cd terraform
+AWS_PROFILE=dev-sso terraform apply -auto-approve
 ```
 
-## 📊 Current Architecture
+Output:
+```
+aws_lb_listener.https[0] will be updated in-place:
+  ~ certificate_arn: (old editimg cert) → (new svg2png cert)
+
+Apply complete! Resources: 0 added, 1 changed, 0 destroyed.
+```
+
+## 🔐 HTTPS Security
 
 ```
 ┌────────────────────────────────────────┐
