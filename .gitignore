@@ -21,6 +21,8 @@ terraform/.env
 terraform.tfstate
 terraform.tfstate.*
 terraform.tfvars
+tfplan
+*.tfplan
 crash.log
 crash.*.log
 override.tf
