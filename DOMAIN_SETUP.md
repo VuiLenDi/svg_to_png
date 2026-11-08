@@ -14,7 +14,7 @@
 
 ```bash
 # ALB Direct (via DNS name)
-https://svg-to-png-alb-1323256632.us-east-1.elb.amazonaws.com
+https://<ALB-DNS-NAME>
 → HTTP/2 200 OK ✅ (certificate mismatch but accessible)
 
 # Custom Domain (HTTPS ready - pending DNS A record)
@@ -25,7 +25,6 @@ https://svg2png.vuilendi.com
 ## 📋 Setup Completed
 
 ✅ **Certificate**: ISSUED (Status: ISSUED)
-✅ **ACM ARN**: `<CERTIFICATE_ARN><OLD_CERT_ID>-05fe-47fa-b8b5-3ad01f54270f`
 ✅ **Terraform**: Updated to use new certificate
 ✅ **ALB Listener**: Port 443 configured with new certificate
 
@@ -37,12 +36,12 @@ To make domain work, add this DNS record in Wordpress:
 
 | Name | Type | Value |
 |------|------|-------|
-| `svg2png.vuilendi.com` | A | `svg-to-png-alb-1323256632.us-east-1.elb.amazonaws.com` |
+| `svg2png.vuilendi.com` | A | `<ALB-DNS-NAME>` |
 
 Or if Wordpress supports ALIAS records:
 | Name | Type | Value |
 |------|------|-------|
-| `svg2png.vuilendi.com` | ALIAS | `svg-to-png-alb-1323256632.us-east-1.elb.amazonaws.com` |
+| `svg2png.vuilendi.com` | ALIAS | `<ALB-DNS-NAME>` |
 
 ### Verify DNS Propagation
 
@@ -51,28 +50,28 @@ Or if Wordpress supports ALIAS records:
 nslookup svg2png.vuilendi.com
 dig svg2png.vuilendi.com +short
 
-# Check certificate validation (allow ~5-10 minutes for ACM to verify)
-AWS_PROFILE=dev-sso aws acm describe-certificate \
-  --certificate-arn <CERTIFICATE_ARN><OLD_CERT_ID>-05fe-47fa-b8b5-3ad01f54270f \
-  --region us-east-1 \
+# Check certificate validation
+AWS_PROFILE=<YOUR-SSO-PROFILE> aws acm describe-certificate \
+  --certificate-arn <ACM-CERTIFICATE-ARN> \
+  --region <AWS-REGION> \
   --query 'Certificate.Status' \
   --output text
 ```
 
 Expected output: `ISSUED`
 
-### Step 4: Update Terraform with New Certificate
+### Update Terraform with New Certificate
 
 Once certificate is `ISSUED`, update `terraform/terraform.tfvars`:
 
 ```hcl
-acm_certificate_arn = "<CERTIFICATE_ARN><OLD_CERT_ID>-05fe-47fa-b8b5-3ad01f54270f"
+acm_certificate_arn = "<ACM-CERTIFICATE-ARN>"
 ```
 
 Then deploy:
 ```bash
 cd terraform
-AWS_PROFILE=dev-sso terraform apply -auto-approve
+AWS_PROFILE=<YOUR-SSO-PROFILE> terraform apply -auto-approve
 ```
 
 ## 🔐 HTTPS Redirect Flow
@@ -112,26 +111,26 @@ Certificate is now ISSUED and Terraform has been updated to use it:
 
 ```bash
 cd terraform
-AWS_PROFILE=dev-sso terraform apply -auto-approve
+AWS_PROFILE=<YOUR-SSO-PROFILE> terraform apply -auto-approve
 ```
 
 Output:
 ```
 aws_lb_listener.https[0] will be updated in-place:
-  ~ certificate_arn: (old editimg cert) → (new svg2png cert)
+  ~ certificate_arn: (old cert) → (new svg2png cert)
 
 Apply complete! Resources: 0 added, 1 changed, 0 destroyed.
 ```
 
-## 🔐 HTTPS Security
+## 🔐 Architecture Overview
 
 ```
 ┌────────────────────────────────────────┐
-│         AWS Account (dev-sso)          │
+│         AWS Account                    │
 ├────────────────────────────────────────┤
 │                                        │
 │   Wordpress Domain (vuilendi.com)      │
-│   └─ svg2png.vuilendi.com (CNAME)      │
+│   └─ svg2png.vuilendi.com              │
 │                                        │
 │   Application Load Balancer            │
 │   ├─ Port 80  → HTTP redirect          │
@@ -141,7 +140,7 @@ Apply complete! Resources: 0 added, 1 changed, 0 destroyed.
 │   └─ 2-4 tasks running app             │
 │                                        │
 │   ECR Repository (Docker images)       │
-│   └─ svg-to-png:latest                 │
+│   └─ svg-to-png:<version>              │
 │                                        │
 │   CloudWatch Logs                      │
 │   └─ /ecs/svg-to-png                   │
@@ -154,10 +153,10 @@ Apply complete! Resources: 0 added, 1 changed, 0 destroyed.
 ### Certificate Status
 
 ```bash
-AWS_PROFILE=dev-sso aws acm describe-certificate \
-  --certificate-arn <CERTIFICATE_ARN><OLD_CERT_ID>-05fe-47fa-b8b5-3ad01f54270f \
-  --region us-east-1 \
-  --output json | jq '.Certificate | {Status, ValidationOptions}'
+AWS_PROFILE=<YOUR-SSO-PROFILE> aws acm describe-certificate \
+  --certificate-arn <ACM-CERTIFICATE-ARN> \
+  --region <AWS-REGION> \
+  --output json | grep -A 5 "Status"
 ```
 
 ### DNS Resolution
@@ -181,11 +180,10 @@ openssl s_client -connect svg2png.vuilendi.com:443
 
 ## 📝 Next Steps
 
-1. ✅ Add CNAME records to Wordpress for ACM validation
-2. ✅ Wait for certificate to be `ISSUED` (5-10 minutes)
-3. ✅ Update terraform.tfvars with new certificate ARN
-4. ✅ Run `terraform apply`
-5. ✅ Test HTTPS: `curl https://svg2png.vuilendi.com`
+1. ✅ Add DNS A record for svg2png.vuilendi.com
+2. ✅ Wait for DNS propagation (~5-10 minutes)
+3. ✅ Test HTTPS: `curl https://svg2png.vuilendi.com`
+4. ✅ Verify application is accessible
 
 ## 🚀 After Domain Setup
 
@@ -195,3 +193,12 @@ Once complete:
 - Traffic encrypted with TLS
 - Auto-scaling continues to work (2-4 tasks)
 - CloudWatch logs available in real-time
+
+## 📌 Placeholders to Replace
+
+When using this guide, replace:
+- `<YOUR-SSO-PROFILE>` - Your AWS SSO profile name
+- `<ACM-CERTIFICATE-ARN>` - Your ACM certificate ARN
+- `<ALB-DNS-NAME>` - Your ALB DNS name
+- `<AWS-REGION>` - Your AWS region (e.g., us-east-1)
+
