@@ -38,3 +38,15 @@ variable "desired_count" {
   type        = number
   default     = 2
 }
+
+variable "domain_name" {
+  description = "Custom domain name for the application"
+  type        = string
+  default     = ""
+}
+
+variable "acm_certificate_arn" {
+  description = "ACM certificate ARN for HTTPS"
+  type        = string
+  default     = ""
+}

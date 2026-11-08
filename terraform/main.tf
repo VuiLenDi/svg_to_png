@@ -19,13 +19,4 @@ terraform {
 provider "aws" {
   region  = var.aws_region
   profile = "dev-sso"
-
-  default_tags {
-    tags = {
-      Project     = var.project_name
-      Environment = var.environment
-      CreatedBy   = "Terraform"
-      CreatedAt   = timestamp()
-    }
-  }
 }
