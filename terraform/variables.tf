@@ -40,6 +40,47 @@ variable "desired_count" {
   default     = 2
 }
 
+variable "ecs_scheduled_scaling_enabled" {
+  description = "Enable weekday ECS scheduled scaling to zero outside the configured hours"
+  type        = bool
+  default     = true
+}
+
+variable "ecs_schedule_timezone" {
+  description = "IANA timezone used by ECS scheduled scaling actions"
+  type        = string
+  default     = "Asia/Ho_Chi_Minh"
+}
+
+variable "ecs_scale_up_schedule" {
+  description = "AWS cron expression for scaling ECS up"
+  type        = string
+  default     = "cron(0 14 ? * MON-FRI *)"
+}
+
+variable "ecs_scale_down_schedule" {
+  description = "AWS cron expression for scaling ECS down"
+  type        = string
+  default     = "cron(0 17 ? * MON-FRI *)"
+}
+
+variable "ecs_active_min_capacity" {
+  description = "Minimum ECS task count during scheduled working hours"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.ecs_active_min_capacity >= 1 && var.ecs_active_min_capacity <= 4
+    error_message = "ecs_active_min_capacity must be between 1 and 4."
+  }
+}
+
+variable "interface_endpoint_services" {
+  description = "AWS interface endpoint services to create in every private subnet AZ"
+  type        = set(string)
+  default     = ["ecr.api", "ecr.dkr", "logs"]
+}
+
 variable "domain_name" {
   description = "Custom domain name for the application"
   type        = string
