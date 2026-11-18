@@ -34,10 +34,26 @@ variable "container_image" {
   default     = ""
 }
 
+variable "ecs_max_capacity" {
+  description = "Maximum number of ECS tasks Application Auto Scaling can run"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.ecs_max_capacity >= 1 && floor(var.ecs_max_capacity) == var.ecs_max_capacity
+    error_message = "ecs_max_capacity must be a positive whole number."
+  }
+}
+
 variable "desired_count" {
   description = "Desired number of tasks"
   type        = number
-  default     = 2
+  default     = 1
+
+  validation {
+    condition     = var.desired_count >= 0 && var.desired_count <= var.ecs_max_capacity
+    error_message = "desired_count must be between 0 and ecs_max_capacity."
+  }
 }
 
 variable "ecs_scheduled_scaling_enabled" {
@@ -70,8 +86,8 @@ variable "ecs_active_min_capacity" {
   default     = 1
 
   validation {
-    condition     = var.ecs_active_min_capacity >= 1 && var.ecs_active_min_capacity <= 4
-    error_message = "ecs_active_min_capacity must be between 1 and 4."
+    condition     = var.ecs_active_min_capacity >= 1 && floor(var.ecs_active_min_capacity) == var.ecs_active_min_capacity && var.ecs_active_min_capacity <= var.ecs_max_capacity
+    error_message = "ecs_active_min_capacity must be a positive whole number no greater than ecs_max_capacity."
   }
 }
 

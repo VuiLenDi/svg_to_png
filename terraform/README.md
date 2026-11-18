@@ -79,17 +79,18 @@ terraform validate
 
 - `aws_region`: AWS region (default: us-east-1)
 - `container_image`: Docker image URI from ECR (required)
-- `desired_count`: Number of ECS tasks (default: 2)
+- `desired_count`: Initial number of ECS tasks, which cannot exceed `ecs_max_capacity` (default: 1)
 - `container_port`: Application port (default: 3000)
+- `ecs_max_capacity`: Maximum number of ECS tasks (default: `1`)
 - `ecs_scheduled_scaling_enabled`: Enable weekday ECS scheduled scaling (default: `true`)
 - `ecs_schedule_timezone`: IANA timezone for scheduled actions (default: `Asia/Ho_Chi_Minh`)
 - `ecs_scale_up_schedule` / `ecs_scale_down_schedule`: AWS cron expressions (default: 14:00 / 17:00, Monday–Friday)
-- `ecs_active_min_capacity`: Minimum number of tasks during scheduled hours (default: `1`; autoscaling maximum remains `4`)
+- `ecs_active_min_capacity`: Minimum number of tasks during scheduled hours (default: `1`; cannot exceed `ecs_max_capacity`)
 - `interface_endpoint_services`: Interface endpoints created in each private subnet AZ (defaults to `ecr.api`, `ecr.dkr`, and `logs`). Add only services the workload uses, such as `secretsmanager`, `ssm`, `sqs`, or `sns`.
 
 ## ECS Scheduled Scaling
 
-By default, the ECS service scales to at least one task at 14:00 and to zero at 17:00, Monday through Friday, in `Asia/Ho_Chi_Minh`. CPU and memory target tracking can scale the service up to four tasks while it is active. The weekday scale-down schedule leaves it at zero through the weekend. Terraform ignores ECS `desired_count` drift so it does not undo changes made by Application Auto Scaling.
+By default, the ECS service scales to one task at 14:00 and to zero at 17:00, Monday through Friday, in `Asia/Ho_Chi_Minh`. CPU and memory target tracking can scale the service up to `ecs_max_capacity` tasks while it is active. The weekday scale-down schedule leaves it at zero through the weekend. Terraform ignores ECS `desired_count` drift so it does not undo changes made by Application Auto Scaling.
 
 To disable the schedule, set `ecs_scheduled_scaling_enabled = false`. Customize the timezone, AWS cron expressions, or active minimum capacity with the variables above. Scheduled actions run at their next scheduled time after being created or changed; applying Terraform does not immediately reconcile the service to the current time window.
 
