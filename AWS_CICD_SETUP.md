@@ -22,7 +22,7 @@ GitHub Actions → ECR → ECS (Fargate)
 ## Prerequisites
 
 - AWS Account với quyền IAM cần thiết
-- Terraform >= 1.0
+- Terraform >= 1.10.0
 - Docker (để build images locally)
 - Git
 - GitHub repository
@@ -31,7 +31,7 @@ GitHub Actions → ECR → ECS (Fargate)
 
 ### 1. Bootstrap Terraform State (One-time)
 
-Trước tiên, tạo S3 bucket và DynamoDB table để lưu trữ Terraform state:
+Trước tiên, tạo S3 bucket để lưu Terraform state:
 
 ```bash
 cd terraform/bootstrap
@@ -40,23 +40,18 @@ terraform plan
 terraform apply
 ```
 
-Lưu lại tên S3 bucket và DynamoDB table name để sử dụng ở bước tiếp theo.
+Lưu lại tên S3 bucket để cấu hình backend. Backend sử dụng S3-native lockfile; bảng DynamoDB lock đã được xóa.
 
 ### 2. Cấu hình AWS Credentials
 
-Set up AWS credentials trên máy local:
+Đăng nhập AWS SSO và dùng profile cho các lệnh Terraform chạy local:
 
 ```bash
-aws configure
+aws sso login --profile dev-sso
+export AWS_PROFILE=dev-sso
 ```
 
-Hoặc dùng environment variables:
-
-```bash
-export AWS_ACCESS_KEY_ID=your_access_key
-export AWS_SECRET_ACCESS_KEY=your_secret_key
-export AWS_DEFAULT_REGION=us-east-1
-```
+GitHub Actions dùng credentials tạm thời qua OIDC, không dùng profile local hay access key tĩnh.
 
 ### 3. Cấu hình Terraform Backend
 
@@ -64,13 +59,15 @@ Cập nhật file `terraform/main.tf` với S3 bucket name từ bootstrap:
 
 ```hcl
 backend "s3" {
-  bucket         = "svg-to-png-terraform-state-YOUR_ACCOUNT_ID"
-  key            = "prod/terraform.tfstate"
-  region         = "us-east-1"
-  encrypt        = true
-  dynamodb_table = "terraform-locks"
+   bucket       = "svg-to-png-terraform-state-YOUR_ACCOUNT_ID"
+   key          = "prod/terraform.tfstate"
+   region       = "us-east-1"
+   encrypt      = true
+   use_lockfile = true
 }
 ```
+
+S3 lockfile requires Terraform 1.10 or later. The backend role must be able to read, write, and delete the `.tflock` object next to the state file.
 
 ### 4. Tạo terraform.tfvars
 
@@ -112,11 +109,10 @@ Lưu lại các outputs như ALB DNS name và ECR repository URL.
 
 Thêm secrets sau vào GitHub repository settings (Settings → Secrets and variables → Actions):
 
-- `AWS_ROLE_TO_ASSUME`: ARN của IAM role cho GitHub Actions (sử dụng OIDC)
+- `AWS_TF_PLAN_ROLE_TO_ASSUME`: ARN của IAM role chỉ dùng cho Terraform plan trên PR nội bộ
+- `AWS_TF_APPLY_ROLE_TO_ASSUME`: ARN của IAM role triển khai qua GitHub Environment `production`
 
-Hoặc sử dụng AWS credentials trực tiếp (không khuyến nghị):
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
+Thêm repository variables `TF_CONTAINER_IMAGE` và `ACM_CERTIFICATE_ARN`; workflow ánh xạ chúng sang Terraform variables và dừng nếu thiếu. Không tạo AWS access key tĩnh.
 
 ### 8. Build và Push Docker Image
 
@@ -160,6 +156,98 @@ Workflow này tự động chạy khi push hoặc tạo pull request:
    - Configure AWS credentials
    - Initialize Terraform
    - Apply Terraform changes
+
+Job plan bỏ qua pull request từ fork. Job apply dùng GitHub Environment `production`; giới hạn environment này chỉ cho branch `main` và bật reviewer approval.
+
+## GitHub OIDC IAM Setup
+
+### 1. Add the IAM OIDC provider
+
+Trong AWS IAM → Identity providers, tạo provider nếu chưa có:
+
+- Provider URL: `https://token.actions.githubusercontent.com`
+- Audience: `sts.amazonaws.com`
+
+### 2. Create separate plan and apply roles
+
+Tạo hai role kiểu **Web identity**. Dùng ARN provider `arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com` trong `Principal.Federated`; thay `<OWNER>/<REPO>` bằng owner/repository GitHub.
+
+Trust policy cho role plan:
+
+```json
+{
+   "Version": "2012-10-17",
+   "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"},
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {"StringEquals": {
+         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+         "token.actions.githubusercontent.com:sub": "repo:<OWNER>/<REPO>:pull_request"
+      }}
+   }]
+}
+```
+
+Trust policy cho role apply dùng GitHub Environment:
+
+```json
+{
+   "Version": "2012-10-17",
+   "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"},
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {"StringEquals": {
+         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+         "token.actions.githubusercontent.com:sub": "repo:<OWNER>/<REPO>:environment:production"
+      }}
+   }]
+}
+```
+
+Repos tạo từ 15/07/2026 hoặc đã bật immutable subject dùng format `repo:<OWNER>@<OWNER_ID>/<REPO>@<REPO_ID>:pull_request` và `repo:<OWNER>@<OWNER_ID>/<REPO>@<REPO_ID>:environment:production`. Trust policy phải khớp subject format của repo.
+
+### 3. Attach permissions
+
+Attach policy S3 này cho cả hai role, thay `<ACCOUNT_ID>`:
+
+```json
+{
+   "Version": "2012-10-17",
+   "Statement": [
+      {
+         "Effect": "Allow",
+         "Action": "s3:ListBucket",
+         "Resource": "arn:aws:s3:::svg-to-png-terraform-state-<ACCOUNT_ID>",
+         "Condition": {"StringLike": {"s3:prefix": "prod/terraform.tfstate*"}}
+      },
+      {
+         "Effect": "Allow",
+         "Action": ["s3:GetObject", "s3:PutObject"],
+         "Resource": "arn:aws:s3:::svg-to-png-terraform-state-<ACCOUNT_ID>/prod/terraform.tfstate"
+      },
+      {
+         "Effect": "Allow",
+         "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+         "Resource": "arn:aws:s3:::svg-to-png-terraform-state-<ACCOUNT_ID>/prod/terraform.tfstate.tflock"
+      }
+   ]
+}
+```
+
+Role plan cần thêm quyền đọc/describe/list cho các tài nguyên EC2/VPC, ECR, ECS, ELB, IAM, CloudWatch Logs và Application Auto Scaling. Role apply cần quyền create/update/delete cho các dịch vụ Terraform đang quản lý và `iam:PassRole` chỉ cho hai ECS task roles, với điều kiện `iam:PassedToService = ecs-tasks.amazonaws.com`. Giới hạn resource ARN theo project; không gắn `AdministratorAccess`.
+
+### 4. Configure GitHub
+
+Role plan có thể đọc Terraform state và workflow đăng nội dung plan lên PR. Chỉ cấp quyền tạo PR cho contributor đáng tin cậy, không lưu secret trong state, và không bật role plan cho fork PR.
+
+Trong repository Settings → Environments, tạo `production`, chỉ cho phép deployment từ `main` và bật reviewer approval. Trong Settings → Secrets and variables → Actions:
+
+- Repository secrets: `AWS_TF_PLAN_ROLE_TO_ASSUME`, `AWS_TF_APPLY_ROLE_TO_ASSUME`
+- Repository variables: `TF_CONTAINER_IMAGE`, `ACM_CERTIFICATE_ARN`
+
+Sau khi workflow chạy thành công, xóa secret cũ `AWS_ROLE_TO_ASSUME`.
 
 ## Monitoring & Logs
 
@@ -230,10 +318,10 @@ aws logs tail /ecs/svg-to-png --follow
 Nếu Terraform state bị lock:
 
 ```bash
-aws dynamodb delete-item \
-  --table-name terraform-locks \
-  --key '{"LockID":{"S":"prod/terraform.tfstate"}}'
+terraform force-unlock <LOCK_ID>
 ```
+
+Chỉ force-unlock sau khi xác nhận không còn lần chạy Terraform nào đang hoạt động.
 
 ## Clean up
 
@@ -257,7 +345,7 @@ terraform destroy
 - ✅ NAT Gateway cho outbound traffic
 - ✅ Security groups với least privilege
 - ✅ S3 encryption cho Terraform state
-- ✅ DynamoDB point-in-time recovery
+- ✅ S3-native state locking with Terraform 1.10+
 - ✅ Container image scanning
 - ✅ IAM roles với least privilege
 - ✅ CloudWatch Logs encryption

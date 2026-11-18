@@ -3,8 +3,8 @@
 ## ✅ Hoàn thành
 
 - [x] AWS SSO profile `dev-sso` đã cấu hình
-- [x] Terraform bootstrap: S3 bucket + DynamoDB table tạo thành công
-- [x] Terraform main backend cấu hình với S3
+- [x] Terraform bootstrap: S3 bucket tạo thành công
+- [x] Terraform main backend dùng S3-native lockfile
 - [x] Tất cả 35 AWS resources sẵn sàng deploy
 
 ## 📋 AWS Account Information
@@ -19,15 +19,11 @@ SSO Start URL: https://vuilendi-sso.awsapps.com/start
 ## 🔧 Terraform State Management
 
 ### S3 Bucket
+
 - **Name**: `svg-to-png-terraform-state-<ACCOUNT_ID>`
 - **Versioning**: Enabled
 - **Encryption**: AES256
 - **Public Access**: Blocked
-
-### DynamoDB Table
-- **Name**: `terraform-locks`
-- **Billing Mode**: Pay-per-request
-- **Point-in-time Recovery**: Enabled
 
 ## 📦 Infrastructure to Deploy (35 Resources)
 
@@ -217,11 +213,10 @@ To destroy all AWS resources:
 AWS_PROFILE=dev-sso terraform destroy
 ```
 
-Note: S3 bucket and DynamoDB table (bootstrap) will remain. Delete manually if needed:
+Note: The S3 state bucket will remain. Delete it only after backing up the state and confirming no Terraform configuration uses it:
 
 ```bash
 aws s3 rb s3://svg-to-png-terraform-state-<ACCOUNT_ID> --profile dev-sso
-aws dynamodb delete-table --table-name terraform-locks --profile dev-sso --region us-east-1
 ```
 
 ## 📝 Useful AWS CLI Commands
@@ -252,14 +247,15 @@ aws sso login --profile dev-sso
 ```
 
 ### Terraform state locked
-If Terraform is stuck:
+
+If Terraform is stuck and no Terraform run is active:
+
 ```bash
-AWS_PROFILE=dev-sso aws dynamodb delete-item \
-  --table-name terraform-locks \
-  --key '{"LockID":{"S":"prod/terraform.tfstate"}}'
+AWS_PROFILE=dev-sso terraform force-unlock <LOCK_ID>
 ```
 
 ### ECS tasks not starting
+
 ```bash
 # Check task definition
 AWS_PROFILE=dev-sso aws ecs describe-task-definition \

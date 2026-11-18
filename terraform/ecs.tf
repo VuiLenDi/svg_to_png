@@ -121,14 +121,50 @@ resource "aws_ecs_service" "main" {
   }
 
   depends_on = [aws_lb_listener.http]
+
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
 }
 
 resource "aws_appautoscaling_target" "ecs_target" {
-  max_capacity       = 4
-  min_capacity       = 2
+  max_capacity       = var.ecs_max_capacity
+  min_capacity       = var.ecs_scheduled_scaling_enabled ? 0 : var.desired_count
   resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.main.name}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
+}
+
+resource "aws_appautoscaling_scheduled_action" "ecs_scale_up" {
+  count = var.ecs_scheduled_scaling_enabled ? 1 : 0
+
+  name               = "${var.project_name}-weekday-scale-up"
+  service_namespace  = aws_appautoscaling_target.ecs_target.service_namespace
+  resource_id        = aws_appautoscaling_target.ecs_target.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs_target.scalable_dimension
+  schedule           = var.ecs_scale_up_schedule
+  timezone           = var.ecs_schedule_timezone
+
+  scalable_target_action {
+    min_capacity = var.ecs_active_min_capacity
+    max_capacity = aws_appautoscaling_target.ecs_target.max_capacity
+  }
+}
+
+resource "aws_appautoscaling_scheduled_action" "ecs_scale_down" {
+  count = var.ecs_scheduled_scaling_enabled ? 1 : 0
+
+  name               = "${var.project_name}-weekday-scale-down"
+  service_namespace  = aws_appautoscaling_target.ecs_target.service_namespace
+  resource_id        = aws_appautoscaling_target.ecs_target.resource_id
+  scalable_dimension = aws_appautoscaling_target.ecs_target.scalable_dimension
+  schedule           = var.ecs_scale_down_schedule
+  timezone           = var.ecs_schedule_timezone
+
+  scalable_target_action {
+    min_capacity = 0
+    max_capacity = 0
+  }
 }
 
 resource "aws_appautoscaling_policy" "ecs_policy_cpu" {
