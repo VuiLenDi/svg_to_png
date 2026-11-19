@@ -1,22 +1,20 @@
-name: Deploy to AWS
+name: Deploy static site to AWS
 
 on:
   push:
     branches:
       - main
-      - feat/aws-cicd-terraform
   pull_request:
     branches:
       - main
 
 env:
   AWS_REGION: us-east-1
-  REGISTRY: public.ecr.aws
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     permissions:
       contents: read
 
@@ -26,19 +24,24 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run linter
-        run: npm run lint --if-present
+      - name: Check JavaScript syntax
+        run: npm run check
 
-      - name: Run tests
-        run: npm test --if-present
+      - name: Build static site
+        run: npm run build
 
-      - name: Build project
-        run: npm run build --if-present
+      - name: Upload built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-site
+          path: dist/
+          if-no-files-found: error
 
   terraform-plan:
     runs-on: ubuntu-latest
@@ -48,18 +51,17 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      pull-requests: write
 
     env:
-      TF_VAR_container_image: ${{ vars.TF_CONTAINER_IMAGE }}
+      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
       TF_VAR_acm_certificate_arn: ${{ vars.ACM_CERTIFICATE_ARN }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate Terraform deployment variables
+      - name: Validate deployment variables
         run: |
-          test -n "$TF_VAR_container_image" || { echo "::error::Set the TF_CONTAINER_IMAGE repository variable"; exit 1; }
+          test -n "$TF_VAR_domain_name" || { echo "::error::Set the DOMAIN_NAME repository variable"; exit 1; }
           test -n "$TF_VAR_acm_certificate_arn" || { echo "::error::Set the ACM_CERTIFICATE_ARN repository variable"; exit 1; }
 
       - name: Configure AWS credentials
@@ -74,32 +76,14 @@ jobs:
           terraform_version: 1.14.5
 
       - name: Terraform Init
-        run: |
-          cd terraform
-          terraform init
+        working-directory: terraform
+        run: terraform init
 
       - name: Terraform Plan
-        id: plan
-        run: |
-          cd terraform
-          terraform plan -no-color -out=tfplan
-        continue-on-error: true
+        working-directory: terraform
+        run: terraform plan -no-color
 
-      - name: Comment PR with Terraform Plan
-        uses: actions/github-script@v7
-        if: github.event_name == 'pull_request'
-        with:
-          script: |
-            const fs = require('fs');
-            const output = `${{ steps.plan.outputs.stdout }}`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '```terraform\n' + output + '\n```'
-            });
-
-  terraform-apply:
+  deploy:
     runs-on: ubuntu-latest
     environment: production
     needs: build
@@ -110,16 +94,22 @@ jobs:
       id-token: write
 
     env:
-      TF_VAR_container_image: ${{ vars.TF_CONTAINER_IMAGE }}
+      TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
       TF_VAR_acm_certificate_arn: ${{ vars.ACM_CERTIFICATE_ARN }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate Terraform deployment variables
+      - name: Validate deployment variables
         run: |
-          test -n "$TF_VAR_container_image" || { echo "::error::Set the TF_CONTAINER_IMAGE repository variable"; exit 1; }
+          test -n "$TF_VAR_domain_name" || { echo "::error::Set the DOMAIN_NAME repository variable"; exit 1; }
           test -n "$TF_VAR_acm_certificate_arn" || { echo "::error::Set the ACM_CERTIFICATE_ARN repository variable"; exit 1; }
+
+      - name: Download built site
+        uses: actions/download-artifact@v4
+        with:
+          name: static-site
+          path: dist/
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -133,11 +123,20 @@ jobs:
           terraform_version: 1.14.5
 
       - name: Terraform Init
-        run: |
-          cd terraform
-          terraform init
+        working-directory: terraform
+        run: terraform init
 
-      - name: Terraform Apply
+      - name: Apply infrastructure
+        working-directory: terraform
+        run: terraform apply -auto-approve -no-color
+
+      - name: Upload site to S3
+        working-directory: terraform
+        run: aws s3 sync ../dist/ "s3://$(terraform output -raw site_bucket_name)" --delete
+
+      - name: Invalidate CloudFront cache
+        working-directory: terraform
         run: |
-          cd terraform
-          terraform apply -auto-approve -no-color
+          aws cloudfront create-invalidation \
+            --distribution-id "$(terraform output -raw cloudfront_distribution_id)" \
+            --paths "/*"

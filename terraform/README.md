@@ -1,116 +1,81 @@
-# Terraform Configuration Files
+# AWS Static Hosting
 
-## Structure
+Terraform provisions a private S3 bucket and a CloudFront distribution with
+Origin Access Control (OAC). The bucket is not publicly accessible. The existing
+Terraform state bucket in `bootstrap/` is separate and is not removed by the
+root configuration.
 
-```text
-terraform/
-├── main.tf           # Provider configuration
-├── variables.tf      # Input variables
-├── outputs.tf        # Output values
-├── networking.tf     # VPC, subnets, and VPC endpoints
-├── load_balancer.tf  # ALB and target groups
-├── ecs.tf           # ECS cluster, service, task definition
-├── ecr.tf           # ECR repository and lifecycle policy
-├── terraform.tfvars # Variables (gitignored)
-└── bootstrap/
-   └── main.tf      # S3 state bucket
+## Required values
+
+Set these locally or as GitHub Actions repository variables:
+
+- `domain_name` / `DOMAIN_NAME`: the existing custom domain managed in WordPress
+- `acm_certificate_arn` / `ACM_CERTIFICATE_ARN`: the existing ISSUED ACM
+  certificate in `us-east-1`, covering that domain
+
+If your ignored local `terraform.tfvars` still contains ECS settings such as
+`container_image`, `app_name`, `container_port`, `desired_count`, or
+`ecs_max_capacity`, remove those obsolete entries. The supported variables are
+shown in `terraform.tfvars.example`.
+
+The domain and certificate validation record remain unchanged. After the
+CloudFront distribution is ready, update the existing WordPress DNS record for
+the application hostname to point to Terraform's `cloudfront_domain_name`
+output. Do not remove the ACM DNS-validation CNAME.
+
+## Local deployment
+
+Build and validate the frontend:
+
+```sh
+npm ci
+npm run check
+npm run build
 ```
 
-## How to Use
+Set `TF_VAR_domain_name`, `TF_VAR_acm_certificate_arn`, and `AWS_PROFILE`, then
+initialize Terraform and inspect the plan:
 
-### First Time Setup
+```sh
+cd terraform
+terraform init
+terraform plan
+```
 
-1. **Bootstrap Terraform State**
+For a one-time migration from the old ECS state, review the plan and run
+`terraform destroy` before creating the static-site stack. This interrupts the
+site until CloudFront is ready and the WordPress DNS record points to it. This
+destroy has already been completed in the current environment; do not repeat it
+after the S3/CloudFront resources have been created.
 
-   ```bash
-   cd terraform/bootstrap
-   terraform init
-   terraform apply
-   ```
-
-2. **Verify the backend config in terraform/main.tf**
-   - Confirm the S3 bucket matches the name created by bootstrap
-
-3. **Initialize Terraform**
-
-   ```bash
-   cd ../
-   terraform init
-   ```
-
-4. **Create terraform.tfvars**
-
-   ```bash
-   cp terraform.tfvars.example terraform.tfvars
-   # Edit with your values
-   ```
-
-5. **Plan and Apply**
-
-   ```bash
-   terraform plan
-   terraform apply
-   ```
-
-### Ongoing Operations
-
-```bash
-# Check current state
-terraform state list
-terraform state show aws_ecs_service.main
-
-# Update specific resources
-terraform apply -target=aws_ecs_service.main
-
-# Destroy resources
+```sh
 terraform destroy
-
-# Refresh state
-terraform refresh
-
-# Format code
-terraform fmt -recursive
-
-# Validate configuration
-terraform validate
+terraform apply
+terraform apply
+aws s3 sync ../dist/ "s3://$(terraform output -raw site_bucket_name)" --delete
+aws cloudfront create-invalidation \
+  --distribution-id "$(terraform output -raw cloudfront_distribution_id)" \
+  --paths "/*"
+terraform output application_url
+terraform output cloudfront_domain_name
 ```
 
-## Important Variables
+CloudFront distribution deployment can take several minutes. Verify the
+CloudFront URL before changing the DNS target in WordPress.
 
-- `aws_region`: AWS region (default: us-east-1)
-- `container_image`: Docker image URI from ECR (required)
-- `desired_count`: Initial number of ECS tasks, which cannot exceed `ecs_max_capacity` (default: 1)
-- `container_port`: Application port (default: 3000)
-- `ecs_max_capacity`: Maximum number of ECS tasks (default: `1`)
-- `ecs_scheduled_scaling_enabled`: Enable weekday ECS scheduled scaling (default: `true`)
-- `ecs_schedule_timezone`: IANA timezone for scheduled actions (default: `Asia/Ho_Chi_Minh`)
-- `ecs_scale_up_schedule` / `ecs_scale_down_schedule`: AWS cron expressions (default: 14:00 / 17:00, Monday–Friday)
-- `ecs_active_min_capacity`: Minimum number of tasks during scheduled hours (default: `1`; cannot exceed `ecs_max_capacity`)
-- `interface_endpoint_services`: Interface endpoints created in each private subnet AZ (defaults to `ecr.api`, `ecr.dkr`, and `logs`). Add only services the workload uses, such as `secretsmanager`, `ssm`, `sqs`, or `sns`.
+## GitHub Actions
 
-## ECS Scheduled Scaling
+The `Deploy static site to AWS` workflow checks JavaScript syntax, builds the
+site, plans Terraform on same-repository pull requests, and deploys on pushes to
+`main`. Configure:
 
-By default, the ECS service scales to one task at 14:00 and to zero at 17:00, Monday through Friday, in `Asia/Ho_Chi_Minh`. CPU and memory target tracking can scale the service up to `ecs_max_capacity` tasks while it is active. The weekday scale-down schedule leaves it at zero through the weekend. Terraform ignores ECS `desired_count` drift so it does not undo changes made by Application Auto Scaling.
+- Repository variables: `DOMAIN_NAME`, `ACM_CERTIFICATE_ARN`
+- Repository secrets: `AWS_TF_PLAN_ROLE_TO_ASSUME`,
+  `AWS_TF_APPLY_ROLE_TO_ASSUME`
+- The production GitHub Environment should retain its reviewer approval.
 
-To disable the schedule, set `ecs_scheduled_scaling_enabled = false`. Customize the timezone, AWS cron expressions, or active minimum capacity with the variables above. Scheduled actions run at their next scheduled time after being created or changed; applying Terraform does not immediately reconcile the service to the current time window.
-
-## State Locking
-
-Terraform state is stored in S3 and locked with the S3-native `.tflock` file (`use_lockfile = true`). The root configuration requires Terraform 1.10 or later. The AWS role needs `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` access to the state lock file. The legacy DynamoDB lock table has been removed.
-
-## Private Subnet Egress and Cost
-
-Private subnets use S3 and DynamoDB gateway endpoints, which have no hourly endpoint charge. Interface endpoints for ECR API, ECR Docker, and CloudWatch Logs are created in both private subnet AZs so ECS tasks use endpoints in their own AZ. Interface endpoints are billed per endpoint AZ and may also have data processing charges; each additional service in `interface_endpoint_services` adds one endpoint in each AZ.
-
-NAT gateways and their Elastic IPs are not created. ECS tasks can reach the configured AWS endpoints, but they cannot access arbitrary public internet destinations. If the application needs public internet egress, use an explicit egress design and include its cost in the deployment plan.
-
-## Outputs
-
-After `terraform apply`, you'll get:
-
-- `alb_dns_name`: Load balancer DNS
-- `ecr_repository_url`: ECR repository URL
-- `ecs_cluster_name`: ECS cluster name
-- `ecs_service_name`: ECS service name
-
-Access your application via the ALB DNS name.
+Update the two OIDC roles for the new plan/apply scope. The plan role needs
+read-only access to the Terraform state and S3/CloudFront resources. The apply
+role also needs Terraform-managed S3 and CloudFront create/update/delete
+permissions, `s3:PutObject`/`s3:DeleteObject` for the site bucket, and
+`cloudfront:CreateInvalidation`. Do not grant public access to the site bucket.

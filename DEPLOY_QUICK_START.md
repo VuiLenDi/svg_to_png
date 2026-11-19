@@ -1,130 +1,64 @@
-# Quick Start - Deploy to AWS
+# Deploy to AWS
 
-Hướng dẫn nhanh để triển khai SVG-to-PNG converter lên AWS.
+The app is a static Vite site. GitHub Actions builds `dist/`, Terraform creates
+a private S3 bucket and CloudFront distribution, and the workflow uploads the
+build and invalidates CloudFront.
 
-## 📋 Prerequisites
+## One-time migration from ECS
 
-- AWS Account với `dev-sso` profile cấu hình
-- Terraform >= 1.0
-- AWS CLI v2
-- Docker (để build images)
-- Git
+1. Confirm the current `DOMAIN_NAME` and the existing, ISSUED
+   `ACM_CERTIFICATE_ARN` in `us-east-1`.
+2. Configure AWS SSO and review the Terraform plan:
 
-## ⚠️ Security: Sensitive Variables
+   ```sh
+   aws sso login --profile dev-sso
+   cd terraform
+   export AWS_PROFILE=dev-sso
+   export TF_VAR_domain_name="<existing-domain>"
+   export TF_VAR_acm_certificate_arn="<existing-certificate-arn>"
+   terraform init
+   terraform plan
+   ```
 
-**NEVER commit these to git:**
-- `terraform.tfvars` (contains account-specific values)
-- `.env` files (contains AWS credentials and secret ARNs)
-- Docker image URIs (contain Account ID)
+3. Only when the Terraform state still contains the legacy ECS stack, and you
+   accept the interruption, remove it:
 
-**Setup sensitive variables:**
+   ```sh
+   terraform destroy
+   ```
 
-```bash
-cd terraform
+   This destroy has already been completed for the current environment. Do not
+   run it again after the S3/CloudFront stack is present.
 
-# Copy example and fill in your values
-cp .env.example .env
-# Edit .env and add your container_image and certificate_arn
-```
+4. Create the S3/CloudFront stack, build and upload the site, then verify the
+   CloudFront URL:
 
-Or pass via environment:
-```bash
-export TF_VAR_container_image="<ACCOUNT_ID><ECR_IMAGE>"
-export TF_VAR_acm_certificate_arn="<CERTIFICATE_ARN><ID>"
-```
+   ```sh
+   terraform apply
+   cd ..
+   npm ci
+   npm run check
+   npm run build
+   cd terraform
+   aws s3 sync ../dist/ "s3://$(terraform output -raw site_bucket_name)" --delete
+   aws cloudfront create-invalidation \
+     --distribution-id "$(terraform output -raw cloudfront_distribution_id)" \
+     --paths "/*"
+   terraform output cloudfront_domain_name
+   ```
 
-## ⚡ 3 Steps to Deploy
+5. In WordPress DNS, keep the same custom domain and change its existing
+   application record to the CloudFront domain from the output. Keep the ACM
+   validation CNAME unchanged. Verify HTTPS after DNS propagation.
 
-### Step 1: Login to AWS SSO
-```bash
-aws sso login --profile dev-sso
-```
+The Terraform backend bucket under `terraform/bootstrap/` is separate; do not
+delete it during the migration.
 
-Verify login:
-```bash
-aws sts get-caller-identity --profile dev-sso
-```
+## Ongoing deployments
 
-### Step 2: Get Sensitive Variables
-
-Request new ACM certificate:
-```bash
-AWS_PROFILE=dev-sso aws acm request-certificate \
-  --domain-name svg2png.vuilendi.com \
-  --validation-method DNS \
-  --region us-east-1
-```
-
-Get your container image and certificate ARN, then:
-```bash
-cd terraform
-source .env  # or set TF_VAR_* environment variables
-```
-
-### Step 3: Deploy Infrastructure
-```bash
-cd terraform
-
-# Validate
-AWS_PROFILE=dev-sso terraform validate
-
-# Review plan
-AWS_PROFILE=dev-sso terraform plan
-
-# Apply (takes 3-5 minutes)
-AWS_PROFILE=dev-sso terraform apply -auto-approve
-```
-
-### Step 4: Push Docker Image
-```bash
-# Get ECR repository URL
-REPO_URL=$(AWS_PROFILE=dev-sso terraform output -raw ecr_repository_url)
-
-# Login to ECR
-aws ecr get-login-password --region us-east-1 --profile dev-sso | \
-  docker login --username AWS --password-stdin $REPO_URL
-
-# Build and push
-docker build -t svg-to-png:latest .
-docker tag svg-to-png:latest $REPO_URL:latest
-docker push $REPO_URL:latest
-```
-
-## 🌐 Access Your Application
-
-After deployment, get the load balancer URL:
-
-```bash
-AWS_PROFILE=dev-sso terraform output -raw alb_dns_name
-```
-
-Open in browser: `http://{ALB_DNS_NAME}`
-
-## 📊 Monitor Status
-
-```bash
-# Check ECS tasks
-AWS_PROFILE=dev-sso aws ecs describe-services \
-  --cluster svg-to-png-cluster \
-  --services svg-to-png-service
-
-# View logs
-AWS_PROFILE=dev-sso aws logs tail /ecs/svg-to-png --follow
-
-# Update service with new image
-AWS_PROFILE=dev-sso aws ecs update-service \
-  --cluster svg-to-png-cluster \
-  --service svg-to-png-service \
-  --force-new-deployment
-```
-
-## 🗑️ Cleanup
-
-```bash
-AWS_PROFILE=dev-sso terraform destroy -auto-approve
-```
-
----
-
-📖 See [AWS_SSO_SETUP.md](AWS_SSO_SETUP.md) for detailed documentation.
-
+Configure GitHub repository variables `DOMAIN_NAME` and
+`ACM_CERTIFICATE_ARN`, plus OIDC secrets `AWS_TF_PLAN_ROLE_TO_ASSUME` and
+`AWS_TF_APPLY_ROLE_TO_ASSUME`. Keep production Environment approval enabled.
+Pushes to `main` run build, Terraform apply, S3 sync, and CloudFront
+invalidation. See [terraform/README.md](terraform/README.md) for role
+permissions and details.
