@@ -19,6 +19,14 @@ npm run build
 npm run preview
 ```
 
+## AWS deployment
+
+The production frontend is a static site hosted in a private S3 bucket behind
+CloudFront. Terraform and GitHub Actions deployment details are in
+[DEPLOY_QUICK_START.md](DEPLOY_QUICK_START.md). The existing custom domain and
+ACM certificate are retained; only the WordPress DNS target changes to the
+CloudFront distribution.
+
 ## Sử dụng
 
 1. Dán mã SVG hoặc chọn/kéo-thả file `.svg` (tối đa 2 MB).

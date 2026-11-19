@@ -1,10 +1,7 @@
-aws_region       = "us-east-1"
-project_name     = "svg-to-png"
-environment      = "production"
-app_name         = "svg-to-png-converter"
-container_port   = 3000
-desired_count    = 1
-ecs_max_capacity = 1
+aws_region   = "us-east-1"
+project_name = "svg-to-png"
+environment  = "production"
 
-# Thay thế với URI của Docker image trong ECR
-# container_image = "123456789<ECR_IMAGE>"
+# Keep the existing hostname and use its already-issued ACM certificate in us-east-1.
+domain_name        = "svg2png.vuilendi.com"
+acm_certificate_arn = "arn:aws:acm:us-east-1:<ACCOUNT_ID>:certificate/<CERTIFICATE_ID>"
